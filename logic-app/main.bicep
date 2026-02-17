@@ -7,8 +7,11 @@
 
 // === Parameters ===
 
-@description('Azure region for all resources')
-param location string = resourceGroup().location
+@description('Azure region for all resources. Leave blank to use the resource group location.')
+@metadata({
+  strongType: 'location'
+})
+param location string
 
 @description('Name for the Logic App resource')
 param logicAppName string
