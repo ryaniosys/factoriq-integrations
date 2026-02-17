@@ -7,12 +7,6 @@
 
 // === Parameters ===
 
-@description('Azure region for all resources. Leave blank to use the resource group location.')
-@metadata({
-  strongType: 'location'
-})
-param location string
-
 @description('Name for the Logic App resource')
 param logicAppName string
 
@@ -46,10 +40,10 @@ var office365ConnectionDisplayName = 'Outlook - ${mailboxAddress}'
 // After deployment, a user must authorize this connection in the Azure Portal
 resource office365Connection 'Microsoft.Web/connections@2016-06-01' = {
   name: office365ConnectionName
-  location: location
+  location: resourceGroup().location
   properties: {
     api: {
-      id: subscriptionResourceId('Microsoft.Web/locations/managedApis', location, 'office365')
+      id: subscriptionResourceId('Microsoft.Web/locations/managedApis', resourceGroup().location, 'office365')
     }
     displayName: office365ConnectionDisplayName
   }
@@ -58,7 +52,7 @@ resource office365Connection 'Microsoft.Web/connections@2016-06-01' = {
 // Logic App (Consumption tier)
 resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
   name: logicAppName
-  location: location
+  location: resourceGroup().location
   tags: {
     purpose: 'email-to-extraction'
     'managed-by': 'factoriq-integrations'
@@ -292,7 +286,7 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
       '$connections': {
         value: {
           office365: {
-            id: subscriptionResourceId('Microsoft.Web/locations/managedApis', location, 'office365')
+            id: subscriptionResourceId('Microsoft.Web/locations/managedApis', resourceGroup().location, 'office365')
             connectionId: office365Connection.id
             connectionName: office365Connection.name
           }
