@@ -1,0 +1,188 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "factoriq.ai Document Processing",
+    "description": "Upload PDF documents and trigger AI-powered data extraction via factoriq.ai",
+    "version": "1.0.0",
+    "contact": {
+      "name": "factoriq.ai Support",
+      "url": "https://inbox.factoriq.ai/docs"
+    }
+  },
+  "host": "inbox.factoriq.ai",
+  "basePath": "/api",
+  "schemes": ["https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "securityDefinitions": {
+    "apiKey": {
+      "type": "apiKey",
+      "name": "Authorization",
+      "in": "header",
+      "description": "API key authentication. Format: Bearer idpe_<your-api-key>"
+    }
+  },
+  "security": [
+    {
+      "apiKey": []
+    }
+  ],
+  "paths": {
+    "/documents/upload": {
+      "post": {
+        "operationId": "UploadDocument",
+        "summary": "Upload a PDF document",
+        "description": "Upload a PDF file for processing. Returns a document record with an ID that can be used to trigger extraction.",
+        "consumes": ["multipart/form-data"],
+        "produces": ["application/json"],
+        "parameters": [
+          {
+            "name": "file",
+            "in": "formData",
+            "type": "file",
+            "required": true,
+            "description": "PDF file to upload"
+          },
+          {
+            "name": "document_type",
+            "in": "formData",
+            "type": "string",
+            "required": false,
+            "default": "order",
+            "enum": ["order", "invoice", "data_sheet", "delivery_note"],
+            "description": "Type of document for extraction"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document uploaded successfully",
+            "schema": {
+              "$ref": "#/definitions/DocumentResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid file (not PDF, too large, or corrupted)"
+          },
+          "401": {
+            "description": "Invalid or expired API key"
+          },
+          "409": {
+            "description": "Duplicate document already uploaded",
+            "schema": {
+              "$ref": "#/definitions/DuplicateDocumentError"
+            }
+          },
+          "429": {
+            "description": "Rate limit or daily quota exceeded"
+          }
+        }
+      }
+    },
+    "/documents/{document_id}/extract": {
+      "post": {
+        "operationId": "TriggerExtraction",
+        "summary": "Trigger extraction for an uploaded document",
+        "description": "Start AI-powered data extraction on a previously uploaded document. This is a fire-and-forget operation — results are available in the factoriq.ai UI or via webhooks.",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "type": "integer",
+            "required": true,
+            "description": "ID of the document to extract (from upload response)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Extraction triggered successfully",
+            "schema": {
+              "$ref": "#/definitions/ExtractionResponse"
+            }
+          },
+          "401": {
+            "description": "Invalid or expired API key"
+          },
+          "404": {
+            "description": "Document not found"
+          },
+          "429": {
+            "description": "Daily quota exceeded"
+          },
+          "500": {
+            "description": "Extraction failed (document is automatically cleaned up)"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "DocumentResponse": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Document ID (use this to trigger extraction)"
+        },
+        "filename": {
+          "type": "string",
+          "description": "Server-generated filename"
+        },
+        "original_filename": {
+          "type": "string",
+          "description": "Original filename as uploaded"
+        },
+        "file_size": {
+          "type": "integer",
+          "description": "File size in bytes"
+        },
+        "status": {
+          "type": "string",
+          "description": "Document status (uploaded, processed)"
+        },
+        "document_type": {
+          "type": "string",
+          "description": "Document type used for extraction"
+        },
+        "uploaded_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Upload timestamp"
+        }
+      }
+    },
+    "DuplicateDocumentError": {
+      "type": "object",
+      "properties": {
+        "detail": {
+          "type": "string",
+          "description": "Error message"
+        },
+        "existing_document_id": {
+          "type": "integer",
+          "description": "ID of the existing duplicate document"
+        },
+        "original_filename": {
+          "type": "string",
+          "description": "Filename of the existing document"
+        }
+      }
+    },
+    "ExtractionResponse": {
+      "type": "object",
+      "properties": {
+        "extraction_id": {
+          "type": "integer",
+          "description": "Extraction record ID"
+        },
+        "overall_confidence": {
+          "type": "number",
+          "description": "Overall extraction confidence score (0-1)"
+        },
+        "status": {
+          "type": "string",
+          "description": "Extraction status (pending_review, auto_approved)"
+        }
+      }
+    }
+  }
+}
