@@ -17,20 +17,9 @@ The flow runs in your Microsoft 365 tenant. factoriq.ai never receives mailbox c
 - A factoriq.ai account with an API key ([generate one here](https://inbox.factoriq.ai))
 - If you watch a shared mailbox: **Full Access** permission on that mailbox for the account that owns the flow
 
-## Option A: Import the Solution Package
+## Setup
 
-> **Note:** The Solution package (`.zip`) must be created by building the flow in Power Platform and exporting it. See [Creating the Solution Package](#creating-the-solution-package) below.
-
-1. Go to [Power Automate](https://make.powerautomate.com)
-2. Click **Solutions** in the left sidebar
-3. Click **Import solution** > **Browse** and select the `.zip` file from `solution/`
-4. Follow the import wizard:
-   - Map the **Outlook connection** to the account that owns the flow (sign in if prompted)
-   - Map the **factoriq.ai connection** — you'll need to create a new connection using your API key
-5. After import, go to **Solutions** > open the imported solution
-6. Find the cloud flow and click **Turn on**
-
-## Option B: Manual Setup
+There is no ready-made Solution package (`.zip`) yet, so the flow is built by hand. It takes about 15 minutes.
 
 ### Step 1: Create the Custom Connector
 
@@ -96,9 +85,9 @@ For production use:
 
 The Outlook connection has the same mailbox rights as the account behind it. Keep that account's permissions limited to the order mailbox.
 
-## Creating the Solution Package
+## For maintainers: creating a Solution package
 
-To create a portable Solution package for distribution:
+Once the flow is built and tested, it can be exported as a Solution package so the next customer can import it instead of building it by hand:
 
 1. Go to [Power Automate](https://make.powerautomate.com) > **Solutions**
 2. Click **New solution**:
@@ -107,7 +96,7 @@ To create a portable Solution package for distribution:
 3. Open the solution and click **Add existing** > **Cloud flow** > select your flow
 4. Click **Add existing** > **Custom connector** > select `factoriq.ai Document Processing`
 5. Click **Export** > **As unmanaged** > download the `.zip`
-6. Place the `.zip` in the `solution/` directory
+6. Commit the `.zip` to `power-automate/solution/` and add an import section to this guide
 
 ## Verify Your Integration
 
