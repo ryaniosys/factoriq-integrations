@@ -1,6 +1,6 @@
 // Logic App Template - Email-to-Extraction Flow
 // Monitors an Outlook mailbox for incoming emails, extracts PDF attachments,
-// uploads them to factoriq.ai, and triggers extraction.
+// uploads them to factoriq.ai, and triggers extraction (synchronous).
 //
 // Post-deployment: The O365 Outlook connection must be authorized manually
 // in the Azure Portal by a user with mailbox access.
@@ -26,6 +26,7 @@ param inboxApiKey string
   'invoice'
   'data_sheet'
   'delivery_note'
+  'quote_request'
 ])
 param documentType string = 'order'
 
@@ -125,12 +126,19 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
               actions: {
                 Check_is_PDF: {
                   type: 'If'
+                  // Some mail clients send PDFs as application/octet-stream, so match the extension too
                   expression: {
-                    and: [
+                    or: [
                       {
                         equals: [
                           '@items(\'For_each_attachment\')?[\'ContentType\']'
                           'application/pdf'
+                        ]
+                      }
+                      {
+                        endsWith: [
+                          '@toLower(items(\'For_each_attachment\')?[\'Name\'])'
+                          '.pdf'
                         ]
                       }
                     ]
@@ -214,12 +222,10 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
                             headers: {
                               Authorization: 'Bearer @{parameters(\'inboxApiKey\')}'
                             }
+                            // No retry: extraction runs synchronously and a failed extraction
+                            // deletes the document, so a retry either 404s or pays twice.
                             retryPolicy: {
-                              type: 'exponential'
-                              count: 2
-                              interval: 'PT15S'
-                              minimumInterval: 'PT10S'
-                              maximumInterval: 'PT1M'
+                              type: 'none'
                             }
                           }
                           runAfter: {

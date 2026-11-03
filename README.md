@@ -13,7 +13,7 @@
 
 ## Azure Logic App
 
-Automatically process PDF email attachments through factoriq.ai. Monitors your Outlook inbox, extracts PDF attachments, uploads them, and triggers AI-powered data extraction.
+Automatically process PDF email attachments through factoriq.ai. Monitors your Outlook inbox, extracts PDF attachments, uploads them, and runs AI-powered data extraction.
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fryaniosys%2Ffactoriq-integrations%2Fmain%2Flogic-app%2Fmain.json)
 
@@ -30,7 +30,7 @@ Email arrives in Outlook
   └─ Logic App triggers (polls every ~3 min)
        └─ For each PDF attachment:
             ├─ Upload to factoriq.ai
-            └─ Trigger extraction
+            └─ Run extraction (waits for the result, no retry)
 ```
 
 ### Deploy
@@ -48,13 +48,14 @@ Email arrives in Outlook
 
 ## Power Automate
 
-The same email-to-extraction flow as a Power Automate cloud flow with a Custom Connector.
+The same email-to-extraction flow as a Power Automate cloud flow with a Custom Connector. Works with user and shared mailboxes. The flow runs in your tenant, so factoriq.ai never receives mailbox credentials.
 
 ### Deploy
 
 1. Import the Custom Connector from [`power-automate/custom-connector/apiDefinition.swagger.json`](power-automate/custom-connector/)
 2. Create a connection with your API key (format: `Bearer idpe_<your-key>`)
 3. Build the flow following the [step-by-step guide](power-automate/)
+4. For production, run the flow under a [dedicated service account](power-automate/#run-the-flow-under-a-service-account)
 
 **[Full setup guide &rarr;](power-automate/)**
 
@@ -68,16 +69,18 @@ The same email-to-extraction flow as a Power Automate cloud flow with a Custom C
 | **mailboxAddress** | &mdash; | Outlook email to monitor |
 | **inboxApiUrl** | `https://inbox.factoriq.ai` | API base URL |
 | **inboxApiKey** | &mdash; | Your API key (`idpe_` prefix) |
-| **documentType** | `order` | `order` / `invoice` / `data_sheet` / `delivery_note` |
+| **documentType** | `order` | `order` / `invoice` / `data_sheet` / `delivery_note` / `quote_request` |
 
 ## Known Limitations
 
 | Limitation | Details |
 |------------|---------|
-| Quota usage | Each document uses 2 quota units (upload + extract) |
+| Quota usage | Each document uses 2 units of the monthly quota (upload + extract) |
+| Synchronous extraction | Extraction returns when finished; a failed extraction deletes the document, so it must not be retried automatically |
 | Polling interval | ~3 minutes (Logic App Consumption tier) |
 | Email tracing | No link between source email and processed document in factoriq.ai |
-| Shared mailboxes | Not supported in current templates |
+| Shared mailboxes | Supported in Power Automate; the Logic App template needs its trigger swapped ([details](logic-app/#known-limitations)) |
+| Attachments | PDF only (matched by content type or `.pdf` extension) |
 
 ## License
 

@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.39.26.7824",
-      "templateHash": "12036460742436839517"
+      "version": "0.45.6.27763",
+      "templateHash": "11747139419466290259"
     }
   },
   "parameters": {
@@ -41,7 +41,8 @@
         "order",
         "invoice",
         "data_sheet",
-        "delivery_note"
+        "delivery_note",
+        "quote_request"
       ],
       "metadata": {
         "description": "Document type for extraction"
@@ -143,11 +144,17 @@
                     "Check_is_PDF": {
                       "type": "If",
                       "expression": {
-                        "and": [
+                        "or": [
                           {
                             "equals": [
                               "@items('For_each_attachment')?['ContentType']",
                               "application/pdf"
+                            ]
+                          },
+                          {
+                            "endsWith": [
+                              "@toLower(items('For_each_attachment')?['Name'])",
+                              ".pdf"
                             ]
                           }
                         ]
@@ -232,11 +239,7 @@
                                   "Authorization": "Bearer @{parameters('inboxApiKey')}"
                                 },
                                 "retryPolicy": {
-                                  "type": "exponential",
-                                  "count": 2,
-                                  "interval": "PT15S",
-                                  "minimumInterval": "PT10S",
-                                  "maximumInterval": "PT1M"
+                                  "type": "none"
                                 }
                               },
                               "runAfter": {

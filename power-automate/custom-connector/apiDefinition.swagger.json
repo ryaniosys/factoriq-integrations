@@ -2,8 +2,8 @@
   "swagger": "2.0",
   "info": {
     "title": "factoriq.ai Document Processing",
-    "description": "Upload PDF documents and trigger AI-powered data extraction via factoriq.ai",
-    "version": "1.0.0",
+    "description": "Upload documents and run AI-powered data extraction via factoriq.ai",
+    "version": "1.1.0",
     "contact": {
       "name": "factoriq.ai Support",
       "url": "https://inbox.factoriq.ai/docs"
@@ -11,9 +11,15 @@
   },
   "host": "inbox.factoriq.ai",
   "basePath": "/api",
-  "schemes": ["https"],
-  "consumes": ["application/json"],
-  "produces": ["application/json"],
+  "schemes": [
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
   "securityDefinitions": {
     "apiKey": {
       "type": "apiKey",
@@ -31,17 +37,21 @@
     "/documents/upload": {
       "post": {
         "operationId": "UploadDocument",
-        "summary": "Upload a PDF document",
-        "description": "Upload a PDF file for processing. Returns a document record with an ID that can be used to trigger extraction.",
-        "consumes": ["multipart/form-data"],
-        "produces": ["application/json"],
+        "summary": "Upload a document",
+        "description": "Upload a PDF, PNG, JPEG, plain-text or HTML file. Returns a document record with an ID that is used to run extraction.",
+        "consumes": [
+          "multipart/form-data"
+        ],
+        "produces": [
+          "application/json"
+        ],
         "parameters": [
           {
             "name": "file",
             "in": "formData",
             "type": "file",
             "required": true,
-            "description": "PDF file to upload"
+            "description": "File to upload: PDF, PNG, JPEG, TXT or HTML"
           },
           {
             "name": "document_type",
@@ -49,7 +59,13 @@
             "type": "string",
             "required": false,
             "default": "order",
-            "enum": ["order", "invoice", "data_sheet", "delivery_note"],
+            "enum": [
+              "order",
+              "invoice",
+              "data_sheet",
+              "delivery_note",
+              "quote_request"
+            ],
             "description": "Type of document for extraction"
           }
         ],
@@ -61,7 +77,7 @@
             }
           },
           "400": {
-            "description": "Invalid file (not PDF, too large, or corrupted)"
+            "description": "Invalid file (unsupported type, too large, or corrupted)"
           },
           "401": {
             "description": "Invalid or expired API key"
@@ -73,7 +89,7 @@
             }
           },
           "429": {
-            "description": "Rate limit or daily quota exceeded"
+            "description": "Rate limit or monthly quota exceeded"
           }
         }
       }
@@ -81,8 +97,8 @@
     "/documents/{document_id}/extract": {
       "post": {
         "operationId": "TriggerExtraction",
-        "summary": "Trigger extraction for an uploaded document",
-        "description": "Start AI-powered data extraction on a previously uploaded document. This is a fire-and-forget operation — results are available in the factoriq.ai UI or via webhooks.",
+        "summary": "Run extraction for an uploaded document",
+        "description": "Run AI-powered data extraction on a previously uploaded document. The call is synchronous: it returns once the extraction is finished, with the extracted data and confidence. If extraction fails, the document is deleted so it can be uploaded again. Do not retry this action automatically.",
         "parameters": [
           {
             "name": "document_id",
@@ -94,10 +110,13 @@
         ],
         "responses": {
           "200": {
-            "description": "Extraction triggered successfully",
+            "description": "Extraction finished",
             "schema": {
               "$ref": "#/definitions/ExtractionResponse"
             }
+          },
+          "400": {
+            "description": "Document could not be read (extraction failed; the document has been deleted)"
           },
           "401": {
             "description": "Invalid or expired API key"
@@ -106,10 +125,10 @@
             "description": "Document not found"
           },
           "429": {
-            "description": "Daily quota exceeded"
+            "description": "Monthly quota exceeded"
           },
           "500": {
-            "description": "Extraction failed (document is automatically cleaned up)"
+            "description": "Extraction failed (the document has been deleted)"
           }
         }
       }
@@ -137,7 +156,7 @@
         },
         "status": {
           "type": "string",
-          "description": "Document status (uploaded, processed)"
+          "description": "Document status: uploaded, processed or extraction_failed"
         },
         "document_type": {
           "type": "string",
@@ -147,6 +166,14 @@
           "type": "string",
           "format": "date-time",
           "description": "Upload timestamp"
+        },
+        "content_type": {
+          "type": "string",
+          "description": "MIME type of the stored file"
+        },
+        "document_hash": {
+          "type": "string",
+          "description": "SHA-256 hash of the file content, used for duplicate detection"
         }
       }
     },
@@ -164,6 +191,23 @@
         "original_filename": {
           "type": "string",
           "description": "Filename of the existing document"
+        },
+        "uploaded_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Upload timestamp of the existing document"
+        },
+        "document_hash": {
+          "type": "string",
+          "description": "Hash shared by both files"
+        },
+        "existing_document_source": {
+          "type": "string",
+          "enum": [
+            "upload",
+            "bootstrapping"
+          ],
+          "description": "bootstrapping when the file matches seeded historical data"
         }
       }
     },
@@ -174,13 +218,25 @@
           "type": "integer",
           "description": "Extraction record ID"
         },
+        "extracted_data": {
+          "type": "object",
+          "description": "Extracted fields; structure depends on the document type"
+        },
         "overall_confidence": {
           "type": "number",
           "description": "Overall extraction confidence score (0-1)"
         },
+        "composite_confidence": {
+          "type": "number",
+          "description": "Confidence combined with validation results (0-1)"
+        },
         "status": {
           "type": "string",
-          "description": "Extraction status (pending_review, auto_approved)"
+          "description": "Extraction status, e.g. pending_review or auto_approved"
+        },
+        "auto_approved": {
+          "type": "boolean",
+          "description": "True if the extraction met the auto-approval thresholds"
         }
       }
     }
