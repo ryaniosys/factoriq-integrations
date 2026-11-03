@@ -19,7 +19,7 @@ The flow runs in your Microsoft 365 tenant. factoriq.ai never receives mailbox c
 
 ## Setup
 
-There is no ready-made Solution package (`.zip`) yet, so the flow is built by hand. It takes about 15 minutes.
+There is no ready-made Solution package (`.zip`) yet, so the flow is built by hand.
 
 ### Step 1: Create the Custom Connector
 
