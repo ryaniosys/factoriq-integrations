@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "803251275749395388"
+      "templateHash": "15645558954264609943"
     }
   },
   "parameters": {
@@ -112,7 +112,7 @@
                 "queries": {
                   "folderId": "Inbox",
                   "importance": "Any",
-                  "fetchOnlyWithAttachment": true,
+                  "fetchOnlyWithAttachment": false,
                   "includeAttachments": true
                 }
               },
@@ -124,145 +124,100 @@
             }
           },
           "actions": {
-            "Check_has_attachments": {
+            "Filter_PDF_attachments": {
+              "type": "Query",
+              "inputs": {
+                "from": "@coalesce(triggerBody()?['Attachments'], json('[]'))",
+                "where": "@or(equals(item()?['ContentType'], 'application/pdf'), endsWith(toLower(item()?['Name']), '.pdf'))"
+              },
+              "runAfter": {}
+            },
+            "Check_has_PDF": {
               "type": "If",
               "expression": {
                 "and": [
                   {
                     "greater": [
-                      "@length(triggerBody()?['Attachments'])",
+                      "@length(body('Filter_PDF_attachments'))",
                       0
                     ]
                   }
                 ]
               },
               "actions": {
-                "For_each_attachment": {
+                "For_each_PDF": {
                   "type": "Foreach",
-                  "foreach": "@triggerBody()?['Attachments']",
+                  "foreach": "@body('Filter_PDF_attachments')",
                   "actions": {
-                    "Check_is_PDF": {
-                      "type": "If",
-                      "expression": {
-                        "or": [
-                          {
-                            "equals": [
-                              "@items('For_each_attachment')?['ContentType']",
-                              "application/pdf"
-                            ]
-                          },
-                          {
-                            "endsWith": [
-                              "@toLower(items('For_each_attachment')?['Name'])",
-                              ".pdf"
-                            ]
-                          }
-                        ]
-                      },
+                    "Try_ingest_PDF": {
+                      "type": "Scope",
                       "actions": {
-                        "Try_process_attachment": {
-                          "type": "Scope",
-                          "actions": {
-                            "Ingest_mail": {
-                              "type": "Http",
-                              "inputs": {
-                                "method": "POST",
-                                "uri": "@{parameters('inboxApiUrl')}/api/ingest/mail",
-                                "headers": {
-                                  "Authorization": "Bearer @{parameters('inboxApiKey')}",
-                                  "Content-Type": "application/json"
-                                },
-                                "body": {
-                                  "message_id": "@{triggerBody()?['Id']}/@{items('For_each_attachment')?['Id']}",
-                                  "sender_address": "@{triggerBody()?['From']}",
-                                  "subject": "@{triggerBody()?['Subject']}",
-                                  "received_at": "@{triggerBody()?['DateTimeReceived']}",
-                                  "body_content": "@{triggerBody()?['Body']}",
-                                  "body_content_type": "@{if(equals(triggerBody()?['IsHtml'], true), 'html', 'text')}",
-                                  "document_type": "@{parameters('documentType')}",
-                                  "attachments": [
-                                    {
-                                      "name": "@{items('For_each_attachment')?['Name']}",
-                                      "content_type": "application/pdf",
-                                      "content_base64": "@{items('For_each_attachment')?['ContentBytes']}",
-                                      "is_inline": false
-                                    }
-                                  ]
-                                },
-                                "retryPolicy": {
-                                  "type": "exponential",
-                                  "count": 2,
-                                  "interval": "PT15S",
-                                  "minimumInterval": "PT10S",
-                                  "maximumInterval": "PT1M"
-                                }
-                              },
-                              "runAfter": {},
-                              "runtimeConfiguration": {
-                                "secureData": {
-                                  "properties": [
-                                    "inputs"
-                                  ]
-                                }
-                              }
+                        "Ingest_mail_PDF": {
+                          "type": "Http",
+                          "inputs": {
+                            "method": "POST",
+                            "uri": "@{parameters('inboxApiUrl')}/api/ingest/mail",
+                            "headers": {
+                              "Authorization": "Bearer @{parameters('inboxApiKey')}",
+                              "Content-Type": "application/json"
                             },
-                            "Parse_ingest_response": {
-                              "type": "ParseJson",
-                              "inputs": {
-                                "content": "@body('Ingest_mail')",
-                                "schema": {
-                                  "type": "object",
-                                  "properties": {
-                                    "message_id": {
-                                      "type": "integer"
-                                    },
-                                    "document_id": {
-                                      "type": [
-                                        "integer",
-                                        "null"
-                                      ]
-                                    },
-                                    "status": {
-                                      "type": "string"
-                                    }
-                                  }
+                            "body": {
+                              "message_id": "@{triggerBody()?['Id']}/@{items('For_each_PDF')?['Id']}",
+                              "sender_address": "@{triggerBody()?['From']}",
+                              "subject": "@{triggerBody()?['Subject']}",
+                              "received_at": "@{triggerBody()?['DateTimeReceived']}",
+                              "body_content": "@{triggerBody()?['Body']}",
+                              "body_content_type": "@{if(equals(triggerBody()?['IsHtml'], true), 'html', 'text')}",
+                              "document_type": "@{parameters('documentType')}",
+                              "attachments": [
+                                {
+                                  "name": "@{items('For_each_PDF')?['Name']}",
+                                  "content_type": "application/pdf",
+                                  "content_base64": "@{items('For_each_PDF')?['ContentBytes']}",
+                                  "is_inline": false
                                 }
-                              },
-                              "runAfter": {
-                                "Ingest_mail": [
-                                  "Succeeded"
-                                ]
-                              }
+                              ]
+                            },
+                            "retryPolicy": {
+                              "type": "exponential",
+                              "count": 2,
+                              "interval": "PT15S",
+                              "minimumInterval": "PT10S",
+                              "maximumInterval": "PT1M"
                             }
                           },
-                          "runAfter": {}
-                        },
-                        "Catch_processing_error": {
-                          "type": "Scope",
-                          "actions": {
-                            "Log_error": {
-                              "type": "Compose",
-                              "inputs": {
-                                "message": "Failed to process PDF attachment",
-                                "attachment": "@items('For_each_attachment')?['Name']",
-                                "error": "@result('Try_process_attachment')",
-                                "timestamp": "@utcNow()"
-                              },
-                              "runAfter": {}
+                          "runAfter": {},
+                          "runtimeConfiguration": {
+                            "secureData": {
+                              "properties": [
+                                "inputs"
+                              ]
                             }
-                          },
-                          "runAfter": {
-                            "Try_process_attachment": [
-                              "Failed",
-                              "TimedOut"
-                            ]
                           }
                         }
                       },
-                      "else": {
-                        "actions": {}
-                      },
                       "runAfter": {}
+                    },
+                    "Catch_ingest_PDF": {
+                      "type": "Scope",
+                      "actions": {
+                        "Log_ingest_PDF": {
+                          "type": "Compose",
+                          "inputs": {
+                            "message": "Failed to send PDF attachment",
+                            "attachment": "@items('For_each_PDF')?['Name']",
+                            "error": "@result('Try_ingest_PDF')",
+                            "timestamp": "@utcNow()"
+                          },
+                          "runAfter": {}
+                        }
+                      },
+                      "runAfter": {
+                        "Try_ingest_PDF": [
+                          "Failed",
+                          "TimedOut"
+                        ]
+                      }
                     }
                   },
                   "runAfter": {},
@@ -274,9 +229,76 @@
                 }
               },
               "else": {
-                "actions": {}
+                "actions": {
+                  "Try_ingest_body": {
+                    "type": "Scope",
+                    "actions": {
+                      "Ingest_mail_body": {
+                        "type": "Http",
+                        "inputs": {
+                          "method": "POST",
+                          "uri": "@{parameters('inboxApiUrl')}/api/ingest/mail",
+                          "headers": {
+                            "Authorization": "Bearer @{parameters('inboxApiKey')}",
+                            "Content-Type": "application/json"
+                          },
+                          "body": {
+                            "message_id": "@{triggerBody()?['Id']}",
+                            "sender_address": "@{triggerBody()?['From']}",
+                            "subject": "@{triggerBody()?['Subject']}",
+                            "received_at": "@{triggerBody()?['DateTimeReceived']}",
+                            "body_content": "@{triggerBody()?['Body']}",
+                            "body_content_type": "@{if(equals(triggerBody()?['IsHtml'], true), 'html', 'text')}",
+                            "document_type": "@{parameters('documentType')}",
+                            "attachments": []
+                          },
+                          "retryPolicy": {
+                            "type": "exponential",
+                            "count": 2,
+                            "interval": "PT15S",
+                            "minimumInterval": "PT10S",
+                            "maximumInterval": "PT1M"
+                          }
+                        },
+                        "runAfter": {},
+                        "runtimeConfiguration": {
+                          "secureData": {
+                            "properties": [
+                              "inputs"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "runAfter": {}
+                  },
+                  "Catch_ingest_body": {
+                    "type": "Scope",
+                    "actions": {
+                      "Log_ingest_body": {
+                        "type": "Compose",
+                        "inputs": {
+                          "message": "Failed to send mail body",
+                          "error": "@result('Try_ingest_body')",
+                          "timestamp": "@utcNow()"
+                        },
+                        "runAfter": {}
+                      }
+                    },
+                    "runAfter": {
+                      "Try_ingest_body": [
+                        "Failed",
+                        "TimedOut"
+                      ]
+                    }
+                  }
+                }
               },
-              "runAfter": {}
+              "runAfter": {
+                "Filter_PDF_attachments": [
+                  "Succeeded"
+                ]
+              }
             }
           },
           "outputs": {}

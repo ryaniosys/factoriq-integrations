@@ -4,8 +4,8 @@ Automatically process PDF email attachments through factoriq.ai using Microsoft 
 
 ## How It Works
 
-1. A cloud flow watches a user or shared mailbox for new emails with attachments
-2. For each PDF attachment, it sends the email to factoriq.ai via a Custom Connector: the PDF plus the sender, subject and received time
+1. A cloud flow watches a user or shared mailbox for new emails
+2. It sends each email to factoriq.ai via a Custom Connector, with its sender, subject and received time: one call per PDF attachment, or one call with the email body when there is no PDF
 3. factoriq.ai stores the document and runs AI-powered data extraction on it. The call returns once the extraction has finished
 4. Results are reviewed in the factoriq.ai UI
 
@@ -76,7 +76,8 @@ If you imported an earlier version of the connector, open it, choose **Update fr
    - **document_type**: `order` (or `invoice`, `data_sheet`, `delivery_note`, `quote_request`)
    - **attachments**: one item with **name** = **Attachments Name**, **content_type** = `application/pdf` (also for PDFs the mail client sent as `application/octet-stream`), **content_base64** = **Attachments Content**
 8. Leave the action's **Retry Policy** at the default. Retrying is safe (see [Known Limitations](#known-limitations))
-9. **Save** the flow
+9. To also send emails without a PDF: set the trigger's **Only with Attachments** to **No**. After the loop, add a Condition that checks whether any attachment matched as a PDF (for example with a **Filter array** on the attachments). If none did, add the same action once with **message_id** = the email **Id** and no attachments. factoriq.ai then stores the email body as the document
+10. **Save** the flow
 
 ### Step 3: Test
 

@@ -13,7 +13,7 @@
 
 ## Azure Logic App
 
-Automatically process PDF email attachments through factoriq.ai. Monitors your Outlook inbox and pushes each PDF attachment, with the mail's sender, subject and received time, to factoriq.ai, which runs the AI-powered data extraction.
+Automatically process incoming email through factoriq.ai. Monitors your Outlook inbox and pushes every new email, with its sender, subject and received time, to factoriq.ai, which runs the AI-powered data extraction. Each PDF attachment becomes a document; an email without a PDF is sent as its body.
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fryaniosys%2Ffactoriq-integrations%2Fmain%2Flogic-app%2Fmain.json)
 
@@ -28,9 +28,9 @@ Automatically process PDF email attachments through factoriq.ai. Monitors your O
 ```
 Email arrives in Outlook
   └─ Logic App triggers (polls every ~3 min)
-       └─ For each PDF attachment:
-            └─ Push to factoriq.ai's mail ingest endpoint
-                 └─ factoriq.ai stores the document and runs the extraction
+       ├─ Has PDF attachments → one push per PDF
+       └─ No PDF               → one push with the email body
+            └─ factoriq.ai stores the document and runs the extraction
 ```
 
 ### Deploy
@@ -79,7 +79,7 @@ The same email-to-extraction flow as a Power Automate cloud flow with a Custom C
 | Synchronous extraction | The ingest call returns when the extraction has finished. A retry is safe: the same mail and attachment is never stored or charged twice |
 | Polling interval | ~3 minutes (Logic App Consumption tier) |
 | Shared mailboxes | Supported in Power Automate; the Logic App template needs its trigger swapped ([details](logic-app/#known-limitations)) |
-| Attachments | PDF only (matched by content type or `.pdf` extension) |
+| Attachments | PDF only (matched by content type or `.pdf` extension). An email without a PDF is sent as its body; other attachments such as images are not sent |
 
 ## License
 
