@@ -129,7 +129,7 @@ To create a portable Solution package for distribution:
 
 3. **Polling interval**: Power Automate checks for new emails periodically (~1-5 minutes depending on your license tier).
 
-4. **PDF attachments only**: The flow sends PDF attachments. The API also accepts PNG, JPEG, TXT and HTML, but sending images from emails would also send logos and signatures.
+4. **PDF attachments only**: The flow sends PDF attachments only. factoriq.ai would also take an image or the email body, but sending images from emails would also send logos and signatures.
 
 5. **API key storage**: The API key is stored in the Custom Connector connection, encrypted at rest. It is not visible as a plaintext environment variable.
 
