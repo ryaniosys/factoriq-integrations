@@ -1,6 +1,7 @@
 // Logic App Template - Email-to-Extraction Flow
-// Monitors an Outlook mailbox for incoming emails, extracts PDF attachments,
-// uploads them to factoriq.ai, and triggers extraction (synchronous).
+// Monitors an Outlook mailbox for incoming emails and pushes each PDF attachment,
+// with the mail's sender, subject and received time, to factoriq.ai's mail ingest
+// endpoint. factoriq.ai starts the extraction itself.
 //
 // Post-deployment: The O365 Outlook connection must be authorized manually
 // in the Azure Portal by a user with mailbox access.
@@ -147,31 +148,39 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
                     Try_process_attachment: {
                       type: 'Scope'
                       actions: {
-                        Upload_document: {
+                        Ingest_mail: {
                           type: 'Http'
                           inputs: {
                             method: 'POST'
-                            uri: '@{parameters(\'inboxApiUrl\')}/api/documents/upload'
+                            uri: '@{parameters(\'inboxApiUrl\')}/api/ingest/mail'
                             headers: {
                               Authorization: 'Bearer @{parameters(\'inboxApiKey\')}'
+                              'Content-Type': 'application/json'
                             }
+                            // One push per PDF, so every PDF in the mail becomes its own document.
+                            // The id combines the mail and the attachment, which makes a retry a no-op.
                             body: {
-                              '$content-type': 'multipart/form-data'
-                              '$multipart': [
+                              message_id: '@{triggerBody()?[\'Id\']}/@{items(\'For_each_attachment\')?[\'Id\']}'
+                              sender_address: '@{triggerBody()?[\'From\']}'
+                              subject: '@{triggerBody()?[\'Subject\']}'
+                              received_at: '@{triggerBody()?[\'DateTimeReceived\']}'
+                              body_content: '@{triggerBody()?[\'Body\']}'
+                              body_content_type: '@{if(equals(triggerBody()?[\'IsHtml\'], true), \'html\', \'text\')}'
+                              document_type: '@{parameters(\'documentType\')}'
+                              attachments: [
                                 {
-                                  headers: {
-                                    'Content-Disposition': 'form-data; name="file"; filename="@{items(\'For_each_attachment\')?[\'Name\']}"'
-                                  }
-                                  body: '@base64ToBinary(items(\'For_each_attachment\')?[\'ContentBytes\'])'
-                                }
-                                {
-                                  headers: {
-                                    'Content-Disposition': 'form-data; name="document_type"'
-                                  }
-                                  body: '@{parameters(\'documentType\')}'
+                                  name: '@{items(\'For_each_attachment\')?[\'Name\']}'
+                                  // Declared as PDF even when the mail client sent application/octet-stream:
+                                  // the condition above already matched it as a PDF, and factoriq.ai picks
+                                  // the document by content type.
+                                  content_type: 'application/pdf'
+                                  content_base64: '@{items(\'For_each_attachment\')?[\'ContentBytes\']}'
+                                  is_inline: false
                                 }
                               ]
                             }
+                            // Safe to retry: a repeated message_id returns the existing document
+                            // and is not charged again.
                             retryPolicy: {
                               type: 'exponential'
                               count: 2
@@ -189,18 +198,21 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
                             }
                           }
                         }
-                        Parse_upload_response: {
+                        Parse_ingest_response: {
                           type: 'ParseJson'
                           inputs: {
-                            content: '@body(\'Upload_document\')'
+                            content: '@body(\'Ingest_mail\')'
                             schema: {
                               type: 'object'
                               properties: {
-                                id: {
+                                message_id: {
                                   type: 'integer'
                                 }
-                                filename: {
-                                  type: 'string'
+                                document_id: {
+                                  type: [
+                                    'integer'
+                                    'null'
+                                  ]
                                 }
                                 status: {
                                   type: 'string'
@@ -209,36 +221,9 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
                             }
                           }
                           runAfter: {
-                            Upload_document: [
+                            Ingest_mail: [
                               'Succeeded'
                             ]
-                          }
-                        }
-                        Trigger_extraction: {
-                          type: 'Http'
-                          inputs: {
-                            method: 'POST'
-                            uri: '@{parameters(\'inboxApiUrl\')}/api/documents/@{body(\'Parse_upload_response\')?[\'id\']}/extract'
-                            headers: {
-                              Authorization: 'Bearer @{parameters(\'inboxApiKey\')}'
-                            }
-                            // No retry: extraction runs synchronously and a failed extraction
-                            // deletes the document, so a retry either 404s or pays twice.
-                            retryPolicy: {
-                              type: 'none'
-                            }
-                          }
-                          runAfter: {
-                            Parse_upload_response: [
-                              'Succeeded'
-                            ]
-                          }
-                          runtimeConfiguration: {
-                            secureData: {
-                              properties: [
-                                'inputs'
-                              ]
-                            }
                           }
                         }
                       }

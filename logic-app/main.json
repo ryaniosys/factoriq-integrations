@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.45.6.27763",
-      "templateHash": "11747139419466290259"
+      "version": "0.48.1.52935",
+      "templateHash": "803251275749395388"
     }
   },
   "parameters": {
@@ -163,28 +163,29 @@
                         "Try_process_attachment": {
                           "type": "Scope",
                           "actions": {
-                            "Upload_document": {
+                            "Ingest_mail": {
                               "type": "Http",
                               "inputs": {
                                 "method": "POST",
-                                "uri": "@{parameters('inboxApiUrl')}/api/documents/upload",
+                                "uri": "@{parameters('inboxApiUrl')}/api/ingest/mail",
                                 "headers": {
-                                  "Authorization": "Bearer @{parameters('inboxApiKey')}"
+                                  "Authorization": "Bearer @{parameters('inboxApiKey')}",
+                                  "Content-Type": "application/json"
                                 },
                                 "body": {
-                                  "$content-type": "multipart/form-data",
-                                  "$multipart": [
+                                  "message_id": "@{triggerBody()?['Id']}/@{items('For_each_attachment')?['Id']}",
+                                  "sender_address": "@{triggerBody()?['From']}",
+                                  "subject": "@{triggerBody()?['Subject']}",
+                                  "received_at": "@{triggerBody()?['DateTimeReceived']}",
+                                  "body_content": "@{triggerBody()?['Body']}",
+                                  "body_content_type": "@{if(equals(triggerBody()?['IsHtml'], true), 'html', 'text')}",
+                                  "document_type": "@{parameters('documentType')}",
+                                  "attachments": [
                                     {
-                                      "headers": {
-                                        "Content-Disposition": "form-data; name=\"file\"; filename=\"@{items('For_each_attachment')?['Name']}\""
-                                      },
-                                      "body": "@base64ToBinary(items('For_each_attachment')?['ContentBytes'])"
-                                    },
-                                    {
-                                      "headers": {
-                                        "Content-Disposition": "form-data; name=\"document_type\""
-                                      },
-                                      "body": "@{parameters('documentType')}"
+                                      "name": "@{items('For_each_attachment')?['Name']}",
+                                      "content_type": "application/pdf",
+                                      "content_base64": "@{items('For_each_attachment')?['ContentBytes']}",
+                                      "is_inline": false
                                     }
                                   ]
                                 },
@@ -205,18 +206,21 @@
                                 }
                               }
                             },
-                            "Parse_upload_response": {
+                            "Parse_ingest_response": {
                               "type": "ParseJson",
                               "inputs": {
-                                "content": "@body('Upload_document')",
+                                "content": "@body('Ingest_mail')",
                                 "schema": {
                                   "type": "object",
                                   "properties": {
-                                    "id": {
+                                    "message_id": {
                                       "type": "integer"
                                     },
-                                    "filename": {
-                                      "type": "string"
+                                    "document_id": {
+                                      "type": [
+                                        "integer",
+                                        "null"
+                                      ]
                                     },
                                     "status": {
                                       "type": "string"
@@ -225,34 +229,9 @@
                                 }
                               },
                               "runAfter": {
-                                "Upload_document": [
+                                "Ingest_mail": [
                                   "Succeeded"
                                 ]
-                              }
-                            },
-                            "Trigger_extraction": {
-                              "type": "Http",
-                              "inputs": {
-                                "method": "POST",
-                                "uri": "@{parameters('inboxApiUrl')}/api/documents/@{body('Parse_upload_response')?['id']}/extract",
-                                "headers": {
-                                  "Authorization": "Bearer @{parameters('inboxApiKey')}"
-                                },
-                                "retryPolicy": {
-                                  "type": "none"
-                                }
-                              },
-                              "runAfter": {
-                                "Parse_upload_response": [
-                                  "Succeeded"
-                                ]
-                              },
-                              "runtimeConfiguration": {
-                                "secureData": {
-                                  "properties": [
-                                    "inputs"
-                                  ]
-                                }
                               }
                             }
                           },
