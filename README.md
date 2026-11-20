@@ -75,8 +75,8 @@ The same email-to-extraction flow as a Power Automate cloud flow with a Custom C
 
 | Limitation | Details |
 |------------|---------|
-| Quota usage | Each PDF uses 1 unit of the monthly quota, charged when its extraction starts |
-| Synchronous extraction | The ingest call returns when the extraction has finished. A retry is safe: the same mail and attachment is never stored or charged twice |
+| Quota usage | Each extraction uses 1 unit of the monthly quota, charged when it starts |
+| Synchronous extraction | The ingest call returns when the extraction has finished. A retry never stores or charges the same mail and attachment twice; a `duplicate` answer means "received before", not "extracted" |
 | Polling interval | ~3 minutes (Logic App Consumption tier) |
 | Shared mailboxes | Supported in Power Automate; the Logic App template needs its trigger swapped ([details](logic-app/#known-limitations)) |
 | Attachments | PDF only (matched by content type or `.pdf` extension) |

@@ -136,15 +136,17 @@ All resources are deployed to the **resource group's region** (selected via the 
 
 ## Known Limitations
 
-1. **Quota usage**: Each PDF consumes **1 quota unit** of your monthly quota, charged when its extraction starts. If the extraction fails, the unit is refunded.
+1. **Quota usage**: Each extraction consumes **1 quota unit** of your monthly quota, charged when it starts. A PDF that factoriq.ai has already processed is not extracted or charged again. If the extraction fails, the unit is returned to the monthly count; a spent top-up credit is not returned.
 
-2. **Extraction is synchronous**: The ingest call returns only when the extraction has finished. A retry is safe: factoriq.ai recognises the same `message_id` and returns the existing document with `"status": "duplicate"`, without storing or charging it again. If the extraction fails, the document stays in factoriq.ai marked as failed and can be reprocessed from the UI.
+2. **Extraction is synchronous**: The ingest call returns only when the extraction has finished. A retry never stores or charges the same PDF twice: factoriq.ai recognises the `message_id` and answers `"status": "duplicate"`. A duplicate only means the mail was received before. The first attempt may still be extracting, or may have failed (then `document_id` can be `null`), so check the document in the UI rather than treating a duplicate as success. If the extraction fails, the document stays in factoriq.ai marked as failed and can be reprocessed from the UI.
+
+   Quota is checked before the duplicate check. A retry of a request that used your last unit therefore gets `429`, although the first attempt was stored.
 
 3. **Polling interval**: The Logic App checks for new emails every ~3 minutes. It is not real-time.
 
 4. **No automatic alerting**: If the Logic App fails (e.g., expired API key), you must check the run history manually. Consider setting up [Azure Monitor alerts](https://learn.microsoft.com/en-us/azure/logic-apps/monitor-logic-apps) for Logic App failure rates.
 
-5. **User mailboxes only**: The template watches the mailbox of the account that authorizes the Outlook connection. To watch a shared mailbox, open the Logic App Designer and replace the trigger with **When a new email arrives in a shared mailbox (V2)**, setting **Original Mailbox Address** to the shared mailbox. The authorizing account needs Full Access to it. The [Power Automate guide](../power-automate/#run-the-flow-under-a-service-account) explains why that account should be a dedicated service account.
+5. **User mailboxes only**: The template watches the mailbox of the account that authorizes the Outlook connection. To watch a shared mailbox, open the Logic App Designer and replace the trigger with **When a new email arrives in a shared mailbox (V2)**, setting **Original Mailbox Address** to the shared mailbox. That trigger uses lower-case field names, so the PDF filter, the loop and the request body must be changed to match: `attachments`, `name`, `contentType`, `contentBytes`, `id`, `from`, `subject`, `receivedDateTime`, `body`, `isHtml`. The authorizing account needs Full Access to it. The [Power Automate guide](../power-automate/#run-the-flow-under-a-service-account) explains why that account should be a dedicated service account.
 
 6. **API key in deployment history**: When using the Deploy to Azure button, the API key is stored in the Azure deployment history. For sensitive environments, consider using [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview) to store the key.
 
@@ -155,7 +157,7 @@ All resources are deployed to the **resource group's region** (selected via the 
 - **Check the error details** in the run history. Click the failed run to see which action failed.
 - **401 Unauthorized**: Your API key is invalid or expired. Generate a new key in factoriq.ai and update the Logic App parameters.
 - **400 Bad Request**: The PDF file may be corrupted, too large, or not a valid PDF.
-- **`"status": "duplicate"`** in the response: this PDF from this mail was already received. This is informational, not an error.
+- **`"status": "duplicate"`** in the response: this PDF from this mail was already received, usually by an earlier attempt of the same run. Check the document in the UI.
 - **429 Too Many Requests**: The monthly quota is used up. Nothing is stored. The call is retried automatically (up to 2 times with exponential backoff).
 
 ### Logic App doesn't trigger
@@ -167,7 +169,7 @@ All resources are deployed to the **resource group's region** (selected via the 
 ### Documents appear in factoriq.ai but extraction fails
 
 - The document stays in factoriq.ai with the status `extraction_failed`. Open it in the UI and reprocess it there.
-- Resending the same email does not help: factoriq.ai ignores a mail and attachment it has already received.
+- Reprocess from the UI rather than resending the email. A resubmitted run of the same email is ignored, and a newly sent copy is a different email to factoriq.ai.
 
 ### OAuth connection expired
 

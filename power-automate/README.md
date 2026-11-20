@@ -9,7 +9,7 @@ Automatically process PDF email attachments through factoriq.ai using Microsoft 
 3. factoriq.ai stores the document and runs AI-powered data extraction on it. The call returns once the extraction has finished
 4. Results are reviewed in the factoriq.ai UI
 
-The flow runs in your Microsoft 365 tenant. factoriq.ai never receives mailbox credentials, only the attachments the flow sends.
+The flow runs in your Microsoft 365 tenant. factoriq.ai never receives mailbox credentials, only what the flow sends: the PDF attachment and the email's sender, subject, received time and body.
 
 ## Prerequisites
 
@@ -56,7 +56,7 @@ If you imported an earlier version of the connector, open it, choose **Update fr
 1. Go to **My flows** > **New flow** > **Automated cloud flow**
 2. Name: `factoriq.ai Email Processor`
 3. Choose the trigger (Office 365 Outlook):
-   - **User mailbox:** **When a new email arrives (V2)**
+   - **User mailbox:** **When a new email arrives (V3)**. Use V3, not V2: the expressions below use V3's lower-case field names (`id`, `name`, `contentType`), which the shared-mailbox trigger also uses
    - **Shared mailbox:** **When a new email arrives in a shared mailbox (V2)**, and set **Original Mailbox Address** to the shared mailbox, e.g. `orders@yourcompany.com`
 4. Configure the trigger:
    - **Folder**: Inbox
@@ -121,9 +121,11 @@ To create a portable Solution package for distribution:
 
 ## Known Limitations
 
-1. **Quota usage**: Each PDF consumes **1 quota unit** of your monthly quota, charged when its extraction starts. If the extraction fails, the unit is refunded.
+1. **Quota usage**: Each extraction consumes **1 quota unit** of your monthly quota, charged when it starts. A PDF that factoriq.ai has already processed is not extracted or charged again. If the extraction fails, the unit is returned to the monthly count; a spent top-up credit is not returned.
 
-2. **Extraction is synchronous**: The action returns only when the extraction has finished. A retry is safe: factoriq.ai recognises the same `message_id`, returns the existing document with `status: duplicate`, and does not store or charge it again. A failed extraction stays in factoriq.ai and can be reprocessed from the UI.
+2. **Extraction is synchronous**: The action returns only when the extraction has finished. A retry never stores or charges the same PDF twice: factoriq.ai recognises the `message_id` and answers `status: duplicate`. A duplicate only means the email was received before. The first attempt may still be extracting, or may have failed (then `document_id` can be empty), so check the document in the UI rather than treating a duplicate as success. A failed extraction stays in factoriq.ai and can be reprocessed from the UI.
+
+   Quota is checked before the duplicate check. A retry of a request that used your last unit therefore gets `429`, although the first attempt was stored.
 
 3. **Polling interval**: Power Automate checks for new emails periodically (~1-5 minutes depending on your license tier).
 
@@ -140,9 +142,9 @@ To create a portable Solution package for distribution:
 - **Check the error details** in the run history. Click the failed run to see which action failed.
 - **401 Unauthorized**: Your API key is invalid or expired. Update the Custom Connector connection with a new key.
 - **400 Bad Request**: The attachment may be corrupted, too large, or of an unsupported type.
-- **`status: duplicate`** in the response: this PDF from this email was already received. This is informational.
+- **`status: duplicate`** in the response: this PDF from this email was already received, usually by an earlier attempt of the same run. Check the document in the UI.
 - **429 Too Many Requests**: Monthly quota reached. Nothing was stored.
-- **Extraction failed**: The document stays in factoriq.ai with the status `extraction_failed`. Reprocess it from the UI; resending the email does not help, because the same `message_id` is ignored.
+- **Extraction failed**: The document stays in factoriq.ai with the status `extraction_failed`. Reprocess it from the UI rather than resending the email. A resubmitted run of the same email is ignored, and a newly sent copy is a different email to factoriq.ai.
 
 ### Flow doesn't trigger
 

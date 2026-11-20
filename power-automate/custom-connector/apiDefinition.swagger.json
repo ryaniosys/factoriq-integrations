@@ -38,7 +38,7 @@
       "post": {
         "operationId": "IngestMail",
         "summary": "Send an email to factoriq.ai",
-        "description": "Send one email with its attachment. factoriq.ai stores the PDF (or the email body if there is no PDF) as a document and runs the extraction, then returns. One quota unit is charged when the extraction starts. Sending the same message_id again returns the existing document and is not charged, so this action is safe to retry.",
+        "description": "Send one email with its attachments. factoriq.ai stores one document per call: the first PDF, else the first image, else the email body. It runs the extraction and then returns. One quota unit is charged when the extraction starts. Sending the same message_id again does not store or charge anything and returns status duplicate.",
         "parameters": [
           {
             "name": "body",
@@ -286,7 +286,8 @@
       "properties": {
         "message_id": {
           "type": "string",
-          "description": "Stable id for this email and attachment, e.g. the email id and the attachment id joined with '/'. A repeat is ignored."
+          "description": "Stable id for this email and attachment, e.g. the email id and the attachment id joined with '/'. A repeat is ignored.",
+          "minLength": 1
         },
         "sender_address": {
           "type": "string",
@@ -375,7 +376,8 @@
         },
         "document_id": {
           "type": "integer",
-          "description": "ID of the document created from the email"
+          "description": "ID of the document created from the email; empty if no document was stored",
+          "x-nullable": true
         },
         "status": {
           "type": "string",
@@ -386,14 +388,17 @@
           "description": "duplicate if this message_id was already received"
         },
         "sender_address": {
-          "type": "string"
+          "type": "string",
+          "x-nullable": true
         },
         "subject": {
-          "type": "string"
+          "type": "string",
+          "x-nullable": true
         },
         "received_at": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         }
       }
     }
