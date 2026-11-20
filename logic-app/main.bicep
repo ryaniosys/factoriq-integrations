@@ -1,7 +1,7 @@
 // Logic App Template - Email-to-Extraction Flow
-// Monitors an Outlook mailbox and pushes every new email to factoriq.ai's mail ingest
-// endpoint, with its sender, subject and received time: one push per PDF attachment,
-// or one push with the body when the mail has no PDF. factoriq.ai starts the extraction.
+// Monitors an Outlook mailbox for incoming emails and pushes each PDF attachment,
+// with the mail's sender, subject and received time, to factoriq.ai's mail ingest
+// endpoint. factoriq.ai starts the extraction itself.
 //
 // Post-deployment: The O365 Outlook connection must be authorized manually
 // in the Azure Portal by a user with mailbox access.
@@ -96,7 +96,7 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
             queries: {
               folderId: 'Inbox'
               importance: 'Any'
-              fetchOnlyWithAttachment: false
+              fetchOnlyWithAttachment: true
               includeAttachments: true
             }
           }
@@ -108,109 +108,153 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
         }
       }
       actions: {
-        // PDFs are matched by content type or extension, because some mail clients
-        // send them as application/octet-stream.
-        Filter_PDF_attachments: {
-          type: 'Query'
-          inputs: {
-            from: '@coalesce(triggerBody()?[\'Attachments\'], json(\'[]\'))'
-            where: '@or(equals(item()?[\'ContentType\'], \'application/pdf\'), endsWith(toLower(item()?[\'Name\']), \'.pdf\'))'
-          }
-          runAfter: {}
-        }
-        Check_has_PDF: {
+        Check_has_attachments: {
           type: 'If'
           expression: {
             and: [
               {
                 greater: [
-                  '@length(body(\'Filter_PDF_attachments\'))'
+                  '@length(triggerBody()?[\'Attachments\'])'
                   0
                 ]
               }
             ]
           }
           actions: {
-            // One push per PDF, so every PDF in the mail becomes its own document.
-            // The id combines the mail and the attachment, which makes a retry a no-op.
-            For_each_PDF: {
+            For_each_attachment: {
               type: 'Foreach'
-              foreach: '@body(\'Filter_PDF_attachments\')'
+              foreach: '@triggerBody()?[\'Attachments\']'
               actions: {
-                Try_ingest_PDF: {
-                  type: 'Scope'
-                  actions: {
-                    Ingest_mail_PDF: {
-                      type: 'Http'
-                      inputs: {
-                        method: 'POST'
-                        uri: '@{parameters(\'inboxApiUrl\')}/api/ingest/mail'
-                        headers: {
-                          Authorization: 'Bearer @{parameters(\'inboxApiKey\')}'
-                          'Content-Type': 'application/json'
-                        }
-                        body: {
-                          message_id: '@{triggerBody()?[\'Id\']}/@{items(\'For_each_PDF\')?[\'Id\']}'
-                          sender_address: '@{triggerBody()?[\'From\']}'
-                          subject: '@{triggerBody()?[\'Subject\']}'
-                          received_at: '@{triggerBody()?[\'DateTimeReceived\']}'
-                          body_content: '@{triggerBody()?[\'Body\']}'
-                          body_content_type: '@{if(equals(triggerBody()?[\'IsHtml\'], true), \'html\', \'text\')}'
-                          document_type: '@{parameters(\'documentType\')}'
-                          attachments: [
-                            {
-                              name: '@{items(\'For_each_PDF\')?[\'Name\']}'
-                              // Declared as PDF even when the mail client sent application/octet-stream:
-                              // the filter already matched it as a PDF, and factoriq.ai picks the
-                              // document by content type.
-                              content_type: 'application/pdf'
-                              content_base64: '@{items(\'For_each_PDF\')?[\'ContentBytes\']}'
-                              is_inline: false
-                            }
-                          ]
-                        }
-                        // Safe to retry: a repeated message_id returns the existing message
-                        // and is not stored or charged again.
-                        retryPolicy: {
-                          type: 'exponential'
-                          count: 2
-                          interval: 'PT15S'
-                          minimumInterval: 'PT10S'
-                          maximumInterval: 'PT1M'
-                        }
+                Check_is_PDF: {
+                  type: 'If'
+                  // Some mail clients send PDFs as application/octet-stream, so match the extension too
+                  expression: {
+                    or: [
+                      {
+                        equals: [
+                          '@items(\'For_each_attachment\')?[\'ContentType\']'
+                          'application/pdf'
+                        ]
                       }
-                      runAfter: {}
-                      runtimeConfiguration: {
-                        secureData: {
-                          properties: [
-                            'inputs'
-                          ]
-                        }
+                      {
+                        endsWith: [
+                          '@toLower(items(\'For_each_attachment\')?[\'Name\'])'
+                          '.pdf'
+                        ]
                       }
-                    }
-                  }
-                  runAfter: {}
-                }
-                Catch_ingest_PDF: {
-                  type: 'Scope'
-                  actions: {
-                    Log_ingest_PDF: {
-                      type: 'Compose'
-                      inputs: {
-                        message: 'Failed to send PDF attachment'
-                            attachment: '@items(\'For_each_PDF\')?[\'Name\']'
-                        error: '@result(\'Try_ingest_PDF\')'
-                        timestamp: '@utcNow()'
-                      }
-                      runAfter: {}
-                    }
-                  }
-                  runAfter: {
-                    Try_ingest_PDF: [
-                      'Failed'
-                      'TimedOut'
                     ]
                   }
+                  actions: {
+                    Try_process_attachment: {
+                      type: 'Scope'
+                      actions: {
+                        Ingest_mail: {
+                          type: 'Http'
+                          inputs: {
+                            method: 'POST'
+                            uri: '@{parameters(\'inboxApiUrl\')}/api/ingest/mail'
+                            headers: {
+                              Authorization: 'Bearer @{parameters(\'inboxApiKey\')}'
+                              'Content-Type': 'application/json'
+                            }
+                            // One push per PDF, so every PDF in the mail becomes its own document.
+                            // The id combines the mail and the attachment, which makes a retry a no-op.
+                            body: {
+                              message_id: '@{triggerBody()?[\'Id\']}/@{items(\'For_each_attachment\')?[\'Id\']}'
+                              sender_address: '@{triggerBody()?[\'From\']}'
+                              subject: '@{triggerBody()?[\'Subject\']}'
+                              received_at: '@{triggerBody()?[\'DateTimeReceived\']}'
+                              body_content: '@{triggerBody()?[\'Body\']}'
+                              body_content_type: '@{if(equals(triggerBody()?[\'IsHtml\'], true), \'html\', \'text\')}'
+                              document_type: '@{parameters(\'documentType\')}'
+                              attachments: [
+                                {
+                                  name: '@{items(\'For_each_attachment\')?[\'Name\']}'
+                                  // Declared as PDF even when the mail client sent application/octet-stream:
+                                  // the condition above already matched it as a PDF, and factoriq.ai picks
+                                  // the document by content type.
+                                  content_type: 'application/pdf'
+                                  content_base64: '@{items(\'For_each_attachment\')?[\'ContentBytes\']}'
+                                  is_inline: false
+                                }
+                              ]
+                            }
+                            // Safe to retry: a repeated message_id returns the existing document
+                            // and is not charged again.
+                            retryPolicy: {
+                              type: 'exponential'
+                              count: 2
+                              interval: 'PT15S'
+                              minimumInterval: 'PT10S'
+                              maximumInterval: 'PT1M'
+                            }
+                          }
+                          runAfter: {}
+                          runtimeConfiguration: {
+                            secureData: {
+                              properties: [
+                                'inputs'
+                              ]
+                            }
+                          }
+                        }
+                        Parse_ingest_response: {
+                          type: 'ParseJson'
+                          inputs: {
+                            content: '@body(\'Ingest_mail\')'
+                            schema: {
+                              type: 'object'
+                              properties: {
+                                message_id: {
+                                  type: 'integer'
+                                }
+                                document_id: {
+                                  type: [
+                                    'integer'
+                                    'null'
+                                  ]
+                                }
+                                status: {
+                                  type: 'string'
+                                }
+                              }
+                            }
+                          }
+                          runAfter: {
+                            Ingest_mail: [
+                              'Succeeded'
+                            ]
+                          }
+                        }
+                      }
+                      runAfter: {}
+                    }
+                    Catch_processing_error: {
+                      type: 'Scope'
+                      actions: {
+                        Log_error: {
+                          type: 'Compose'
+                          inputs: {
+                            message: 'Failed to process PDF attachment'
+                            attachment: '@items(\'For_each_attachment\')?[\'Name\']'
+                            error: '@result(\'Try_process_attachment\')'
+                            timestamp: '@utcNow()'
+                          }
+                          runAfter: {}
+                        }
+                      }
+                      runAfter: {
+                        Try_process_attachment: [
+                          'Failed'
+                          'TimedOut'
+                        ]
+                      }
+                    }
+                  }
+                  'else': {
+                    actions: {}
+                  }
+                  runAfter: {}
                 }
               }
               runAfter: {}
@@ -222,81 +266,9 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
             }
           }
           'else': {
-            actions: {
-              // A mail without a PDF is sent with no attachments; factoriq.ai stores its body
-              // as the document.
-              Try_ingest_body: {
-                type: 'Scope'
-                actions: {
-                  Ingest_mail_body: {
-                    type: 'Http'
-                    inputs: {
-                      method: 'POST'
-                      uri: '@{parameters(\'inboxApiUrl\')}/api/ingest/mail'
-                      headers: {
-                        Authorization: 'Bearer @{parameters(\'inboxApiKey\')}'
-                        'Content-Type': 'application/json'
-                      }
-                      body: {
-                        message_id: '@{triggerBody()?[\'Id\']}'
-                        sender_address: '@{triggerBody()?[\'From\']}'
-                        subject: '@{triggerBody()?[\'Subject\']}'
-                        received_at: '@{triggerBody()?[\'DateTimeReceived\']}'
-                        body_content: '@{triggerBody()?[\'Body\']}'
-                        body_content_type: '@{if(equals(triggerBody()?[\'IsHtml\'], true), \'html\', \'text\')}'
-                        document_type: '@{parameters(\'documentType\')}'
-                        // No attachments: factoriq.ai stores the mail body as the document.
-                        attachments: []
-                      }
-                      // Safe to retry: a repeated message_id returns the existing message
-                      // and is not stored or charged again.
-                      retryPolicy: {
-                        type: 'exponential'
-                        count: 2
-                        interval: 'PT15S'
-                        minimumInterval: 'PT10S'
-                        maximumInterval: 'PT1M'
-                      }
-                    }
-                    runAfter: {}
-                    runtimeConfiguration: {
-                      secureData: {
-                        properties: [
-                          'inputs'
-                        ]
-                      }
-                    }
-                  }
-                }
-                runAfter: {}
-              }
-              Catch_ingest_body: {
-                type: 'Scope'
-                actions: {
-                  Log_ingest_body: {
-                    type: 'Compose'
-                    inputs: {
-                      message: 'Failed to send mail body'
-                      error: '@result(\'Try_ingest_body\')'
-                      timestamp: '@utcNow()'
-                    }
-                    runAfter: {}
-                  }
-                }
-                runAfter: {
-                  Try_ingest_body: [
-                    'Failed'
-                    'TimedOut'
-                  ]
-                }
-              }
-            }
+            actions: {}
           }
-          runAfter: {
-            Filter_PDF_attachments: [
-              'Succeeded'
-            ]
-          }
+          runAfter: {}
         }
       }
       outputs: {}

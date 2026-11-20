@@ -4,12 +4,12 @@ Automatically process PDF email attachments through factoriq.ai using an Azure L
 
 ## How It Works
 
-1. The Logic App monitors your Outlook inbox for new emails (polling every ~3 minutes)
-2. It pushes each email to factoriq.ai's mail ingest endpoint (`POST /api/ingest/mail`), together with its sender, subject and received time: one push per PDF attachment, or one push with the email body when there is no PDF
+1. The Logic App monitors your Outlook inbox for new emails with attachments (polling every ~3 minutes)
+2. For each PDF attachment, it pushes the file to factoriq.ai's mail ingest endpoint (`POST /api/ingest/mail`), together with the mail's sender, subject and received time
 3. factoriq.ai stores the document and runs AI-powered data extraction on it. The call returns once the extraction has finished
 4. Results are reviewed in the factoriq.ai UI. factoriq.ai keeps the sender, subject and received time with each document
 
-PDFs are matched by content type or by the `.pdf` file extension, since some mail clients send PDFs as `application/octet-stream`. Other attachments, such as images, are not sent.
+PDFs are matched by content type or by the `.pdf` file extension, since some mail clients send PDFs as `application/octet-stream`.
 
 ## Prerequisites
 
@@ -51,16 +51,17 @@ If you prefer to create the Logic App manually instead of using the Deploy butto
 3. Sign in with your Microsoft 365 account when prompted
 4. Configure the trigger:
    - **Folder**: Inbox
-   - **Only with Attachments**: No
+   - **Only with Attachments**: Yes
    - **Include Attachments**: Yes
-5. Add a **Data Operations** > **Filter array** action named `Filter_PDF_attachments`:
-   - **From**: `@coalesce(triggerBody()?['Attachments'], json('[]'))`
-   - Condition in advanced mode: `@or(equals(item()?['ContentType'], 'application/pdf'), endsWith(toLower(item()?['Name']), '.pdf'))`
-6. Add a **Condition**: `@greater(length(body('Filter_PDF_attachments')), 0)`. In the **True** branch, click **Add an action** > **Control** > **For each**
-   - Input: `@body('Filter_PDF_attachments')`
+5. Click **New step** > **Control** > **For each**
+   - Select **Attachments** from the dynamic content for the input
    - Click the **...** menu on the For each and select **Settings**
    - Set **Concurrency Control** to **On**, **Degree of Parallelism** to **1**
-7. Inside the For each, add an **HTTP** action:
+6. Inside the For each, add a **Condition** that matches PDFs. Switch to the code view and use:
+   ```
+   @or(equals(items('For_each')?['ContentType'], 'application/pdf'), endsWith(toLower(items('For_each')?['Name']), '.pdf'))
+   ```
+7. In the **True** branch, add an **HTTP** action:
    - **Method**: POST
    - **URI**: `https://inbox.factoriq.ai/api/ingest/mail`
    - **Headers**:
@@ -87,9 +88,8 @@ If you prefer to create the Logic App manually instead of using the Deploy butto
      }
      ```
    - `message_id` combines the mail and the attachment, so each PDF becomes its own document and a retry of the same PDF is ignored
-   - `content_type` is always `application/pdf`, because the filter already matched the file as a PDF, even when the mail client sent `application/octet-stream`
-   - **Settings** > **Retry Policy**: **Exponential**, 2 retries. Retrying is safe, see [Known Limitations](#known-limitations)
-8. In the Condition's **False** branch, add the same HTTP action with `"message_id": "@{triggerBody()?['Id']}"` and `"attachments": []`. factoriq.ai then stores the email body as the document
+   - `content_type` is always `application/pdf`, because the condition above already matched the file as a PDF, even when the mail client sent `application/octet-stream`
+8. **Settings** > **Retry Policy**: **Exponential**, 2 retries. Retrying is safe, see [Known Limitations](#known-limitations)
 9. **Save** the Logic App
 
 ### Step 3: Secure the API Key
