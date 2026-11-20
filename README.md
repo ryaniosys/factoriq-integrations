@@ -13,7 +13,7 @@
 
 ## Azure Logic App
 
-Automatically process PDF email attachments through factoriq.ai. Monitors your Outlook inbox, extracts PDF attachments, uploads them, and runs AI-powered data extraction.
+Automatically process PDF email attachments through factoriq.ai. Monitors your Outlook inbox and pushes each PDF attachment, with the mail's sender, subject and received time, to factoriq.ai, which runs the AI-powered data extraction.
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fryaniosys%2Ffactoriq-integrations%2Fmain%2Flogic-app%2Fmain.json)
 
@@ -29,8 +29,8 @@ Automatically process PDF email attachments through factoriq.ai. Monitors your O
 Email arrives in Outlook
   └─ Logic App triggers (polls every ~3 min)
        └─ For each PDF attachment:
-            ├─ Upload to factoriq.ai
-            └─ Run extraction (waits for the result, no retry)
+            └─ Push to factoriq.ai's mail ingest endpoint
+                 └─ factoriq.ai stores the document and runs the extraction
 ```
 
 ### Deploy
@@ -75,10 +75,9 @@ The same email-to-extraction flow as a Power Automate cloud flow with a Custom C
 
 | Limitation | Details |
 |------------|---------|
-| Quota usage | Each document uses 2 units of the monthly quota (upload + extract) |
-| Synchronous extraction | Extraction returns when finished; a failed extraction deletes the document, so it must not be retried automatically |
+| Quota usage | Each PDF uses 1 unit of the monthly quota, charged when its extraction starts |
+| Synchronous extraction | The ingest call returns when the extraction has finished. A retry is safe: the same mail and attachment is never stored or charged twice |
 | Polling interval | ~3 minutes (Logic App Consumption tier) |
-| Email tracing | No link between source email and processed document in factoriq.ai |
 | Shared mailboxes | Supported in Power Automate; the Logic App template needs its trigger swapped ([details](logic-app/#known-limitations)) |
 | Attachments | PDF only (matched by content type or `.pdf` extension) |
 

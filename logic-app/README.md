@@ -5,9 +5,9 @@ Automatically process PDF email attachments through factoriq.ai using an Azure L
 ## How It Works
 
 1. The Logic App monitors your Outlook inbox for new emails with attachments (polling every ~3 minutes)
-2. For each PDF attachment, it uploads the file to factoriq.ai
-3. It then runs AI-powered data extraction on the uploaded document. The call waits until the extraction is finished
-4. Results are reviewed in the factoriq.ai UI
+2. For each PDF attachment, it pushes the file to factoriq.ai's mail ingest endpoint (`POST /api/ingest/mail`), together with the mail's sender, subject and received time
+3. factoriq.ai stores the document and runs AI-powered data extraction on it. The call returns once the extraction has finished
+4. Results are reviewed in the factoriq.ai UI. factoriq.ai keeps the sender, subject and received time with each document
 
 PDFs are matched by content type or by the `.pdf` file extension, since some mail clients send PDFs as `application/octet-stream`.
 
@@ -63,24 +63,38 @@ If you prefer to create the Logic App manually instead of using the Deploy butto
    ```
 7. In the **True** branch, add an **HTTP** action:
    - **Method**: POST
-   - **URI**: `https://inbox.factoriq.ai/api/documents/upload`
+   - **URI**: `https://inbox.factoriq.ai/api/ingest/mail`
    - **Headers**:
      - `Authorization`: `Bearer <your-api-key>`
-   - **Body**: Switch to **Raw** mode and configure as multipart/form-data with the attachment content
-8. Add a **Parse JSON** action after the HTTP upload:
-   - **Content**: Body from the HTTP action
-   - **Schema**: `{"type":"object","properties":{"id":{"type":"integer"}}}`
-9. Add another **HTTP** action:
-   - **Method**: POST
-   - **URI**: `https://inbox.factoriq.ai/api/documents/` then select **id** from Parse JSON `/extract`
-   - **Headers**:
-     - `Authorization`: `Bearer <your-api-key>`
-   - **Settings** > **Retry Policy**: **None** (see [Known Limitations](#known-limitations))
-10. **Save** the Logic App
+     - `Content-Type`: `application/json`
+   - **Body**:
+     ```json
+     {
+       "message_id": "@{triggerBody()?['Id']}/@{items('For_each')?['Id']}",
+       "sender_address": "@{triggerBody()?['From']}",
+       "subject": "@{triggerBody()?['Subject']}",
+       "received_at": "@{triggerBody()?['DateTimeReceived']}",
+       "body_content": "@{triggerBody()?['Body']}",
+       "body_content_type": "@{if(equals(triggerBody()?['IsHtml'], true), 'html', 'text')}",
+       "document_type": "order",
+       "attachments": [
+         {
+           "name": "@{items('For_each')?['Name']}",
+           "content_type": "application/pdf",
+           "content_base64": "@{items('For_each')?['ContentBytes']}",
+           "is_inline": false
+         }
+       ]
+     }
+     ```
+   - `message_id` combines the mail and the attachment, so each PDF becomes its own document and a retry of the same PDF is ignored
+   - `content_type` is always `application/pdf`, because the condition above already matched the file as a PDF, even when the mail client sent `application/octet-stream`
+8. **Settings** > **Retry Policy**: **Exponential**, 2 retries. Retrying is safe, see [Known Limitations](#known-limitations)
+9. **Save** the Logic App
 
 ### Step 3: Secure the API Key
 
-1. Click each HTTP action > **Settings**
+1. Click the HTTP action > **Settings**
 2. Enable **Secure Inputs** to hide the API key from run history
 3. Save the Logic App
 
@@ -122,19 +136,17 @@ All resources are deployed to the **resource group's region** (selected via the 
 
 ## Known Limitations
 
-1. **Quota usage**: Each document consumes **2 quota units** (1 for upload + 1 for extraction) of your monthly quota.
+1. **Quota usage**: Each PDF consumes **1 quota unit** of your monthly quota, charged when its extraction starts. If the extraction fails, the unit is refunded.
 
-2. **Extraction is synchronous**: The extraction call returns only when the extraction has finished. If it fails, factoriq.ai deletes the document so the same file can be uploaded again. The template therefore does not retry the extraction call: a retry would either fail with 404 or run (and bill) the extraction a second time. The upload call is retried; a repeated upload is rejected as a duplicate (409).
+2. **Extraction is synchronous**: The ingest call returns only when the extraction has finished. A retry is safe: factoriq.ai recognises the same `message_id` and returns the existing document with `"status": "duplicate"`, without storing or charging it again. If the extraction fails, the document stays in factoriq.ai marked as failed and can be reprocessed from the UI.
 
 3. **Polling interval**: The Logic App checks for new emails every ~3 minutes. It is not real-time.
 
-4. **No email tracing**: The factoriq.ai UI does not show which email a document came from. If you need traceability, check the Logic App run history.
+4. **No automatic alerting**: If the Logic App fails (e.g., expired API key), you must check the run history manually. Consider setting up [Azure Monitor alerts](https://learn.microsoft.com/en-us/azure/logic-apps/monitor-logic-apps) for Logic App failure rates.
 
-5. **No automatic alerting**: If the Logic App fails (e.g., expired API key), you must check the run history manually. Consider setting up [Azure Monitor alerts](https://learn.microsoft.com/en-us/azure/logic-apps/monitor-logic-apps) for Logic App failure rates.
+5. **User mailboxes only**: The template watches the mailbox of the account that authorizes the Outlook connection. To watch a shared mailbox, open the Logic App Designer and replace the trigger with **When a new email arrives in a shared mailbox (V2)**, setting **Original Mailbox Address** to the shared mailbox. The authorizing account needs Full Access to it. The [Power Automate guide](../power-automate/#run-the-flow-under-a-service-account) explains why that account should be a dedicated service account.
 
-6. **User mailboxes only**: The template watches the mailbox of the account that authorizes the Outlook connection. To watch a shared mailbox, open the Logic App Designer and replace the trigger with **When a new email arrives in a shared mailbox (V2)**, setting **Original Mailbox Address** to the shared mailbox. The authorizing account needs Full Access to it. The [Power Automate guide](../power-automate/#run-the-flow-under-a-service-account) explains why that account should be a dedicated service account.
-
-7. **API key in deployment history**: When using the Deploy to Azure button, the API key is stored in the Azure deployment history. For sensitive environments, consider using [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview) to store the key.
+6. **API key in deployment history**: When using the Deploy to Azure button, the API key is stored in the Azure deployment history. For sensitive environments, consider using [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview) to store the key.
 
 ## Troubleshooting
 
@@ -142,9 +154,9 @@ All resources are deployed to the **resource group's region** (selected via the 
 
 - **Check the error details** in the run history. Click the failed run to see which action failed.
 - **401 Unauthorized**: Your API key is invalid or expired. Generate a new key in factoriq.ai and update the Logic App parameters.
-- **400 Bad Request** on upload: The PDF file may be corrupted, too large, or not a valid PDF.
-- **409 Conflict**: The document was already uploaded (duplicate). This is informational, not an error.
-- **429 Too Many Requests**: You've hit the rate limit or monthly quota. The upload is retried automatically (up to 2 times with exponential backoff); the extraction is not.
+- **400 Bad Request**: The PDF file may be corrupted, too large, or not a valid PDF.
+- **`"status": "duplicate"`** in the response: this PDF from this mail was already received. This is informational, not an error.
+- **429 Too Many Requests**: The monthly quota is used up. Nothing is stored. The call is retried automatically (up to 2 times with exponential backoff).
 
 ### Logic App doesn't trigger
 
@@ -154,8 +166,8 @@ All resources are deployed to the **resource group's region** (selected via the 
 
 ### Documents appear in factoriq.ai but extraction fails
 
-- The extract endpoint may return a 400 or 500 error for certain PDFs. Check the Logic App run history for details.
-- On extraction failure, the document is automatically removed from factoriq.ai. Resend the email to retry.
+- The document stays in factoriq.ai with the status `extraction_failed`. Open it in the UI and reprocess it there.
+- Resending the same email does not help: factoriq.ai ignores a mail and attachment it has already received.
 
 ### OAuth connection expired
 

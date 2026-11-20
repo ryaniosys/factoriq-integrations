@@ -2,8 +2,8 @@
   "swagger": "2.0",
   "info": {
     "title": "factoriq.ai Document Processing",
-    "description": "Upload documents and run AI-powered data extraction via factoriq.ai",
-    "version": "1.1.0",
+    "description": "Send emails and documents to factoriq.ai and run AI-powered data extraction",
+    "version": "1.2.0",
     "contact": {
       "name": "factoriq.ai Support",
       "url": "https://inbox.factoriq.ai/docs"
@@ -34,6 +34,43 @@
     }
   ],
   "paths": {
+    "/ingest/mail": {
+      "post": {
+        "operationId": "IngestMail",
+        "summary": "Send an email to factoriq.ai",
+        "description": "Send one email with its attachment. factoriq.ai stores the PDF (or the email body if there is no PDF) as a document and runs the extraction, then returns. One quota unit is charged when the extraction starts. Sending the same message_id again returns the existing document and is not charged, so this action is safe to retry.",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/MailIngestRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Email received (status created or duplicate)",
+            "schema": {
+              "$ref": "#/definitions/MailIngestResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid attachment (not valid base64, unsupported type, too large, or corrupted)"
+          },
+          "401": {
+            "description": "Invalid or expired API key"
+          },
+          "422": {
+            "description": "Request body does not match the schema"
+          },
+          "429": {
+            "description": "Monthly quota exceeded; nothing was stored"
+          }
+        }
+      }
+    },
     "/documents/upload": {
       "post": {
         "operationId": "UploadDocument",
@@ -237,6 +274,126 @@
         "auto_approved": {
           "type": "boolean",
           "description": "True if the extraction met the auto-approval thresholds"
+        }
+      }
+    },
+    "MailIngestRequest": {
+      "type": "object",
+      "required": [
+        "message_id",
+        "received_at"
+      ],
+      "properties": {
+        "message_id": {
+          "type": "string",
+          "description": "Stable id for this email and attachment, e.g. the email id and the attachment id joined with '/'. A repeat is ignored."
+        },
+        "sender_address": {
+          "type": "string",
+          "description": "Sender email address"
+        },
+        "sender_name": {
+          "type": "string",
+          "description": "Sender display name"
+        },
+        "subject": {
+          "type": "string",
+          "description": "Email subject"
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the email was received"
+        },
+        "body_content": {
+          "type": "string",
+          "description": "Email body"
+        },
+        "body_content_type": {
+          "type": "string",
+          "enum": [
+            "html",
+            "text"
+          ],
+          "default": "html",
+          "description": "Format of body_content"
+        },
+        "document_type": {
+          "type": "string",
+          "enum": [
+            "order",
+            "invoice",
+            "data_sheet",
+            "delivery_note",
+            "quote_request"
+          ],
+          "default": "order",
+          "description": "Type of document for extraction"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MailAttachment"
+          },
+          "description": "Attachments; the first PDF becomes the document"
+        }
+      }
+    },
+    "MailAttachment": {
+      "type": "object",
+      "required": [
+        "name",
+        "content_type",
+        "content_base64"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "File name"
+        },
+        "content_type": {
+          "type": "string",
+          "description": "MIME type; send application/pdf for PDFs"
+        },
+        "content_base64": {
+          "type": "string",
+          "description": "File content, base64-encoded"
+        },
+        "is_inline": {
+          "type": "boolean",
+          "default": false,
+          "description": "True for images embedded in the body"
+        }
+      }
+    },
+    "MailIngestResponse": {
+      "type": "object",
+      "properties": {
+        "message_id": {
+          "type": "integer",
+          "description": "factoriq.ai message record ID"
+        },
+        "document_id": {
+          "type": "integer",
+          "description": "ID of the document created from the email"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "created",
+            "duplicate"
+          ],
+          "description": "duplicate if this message_id was already received"
+        },
+        "sender_address": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
         }
       }
     }

@@ -5,8 +5,8 @@ Automatically process PDF email attachments through factoriq.ai using Microsoft 
 ## How It Works
 
 1. A cloud flow watches a user or shared mailbox for new emails with attachments
-2. For each PDF attachment, it uploads the file to factoriq.ai via a Custom Connector
-3. It then runs AI-powered data extraction on the uploaded document. The call waits until the extraction is finished and returns the result
+2. For each PDF attachment, it sends the email to factoriq.ai via a Custom Connector: the PDF plus the sender, subject and received time
+3. factoriq.ai stores the document and runs AI-powered data extraction on it. The call returns once the extraction has finished
 4. Results are reviewed in the factoriq.ai UI
 
 The flow runs in your Microsoft 365 tenant. factoriq.ai never receives mailbox credentials, only the attachments the flow sends.
@@ -69,12 +69,13 @@ If you imported an earlier version of the connector, open it, choose **Update fr
    ```
    @or(equals(items('Apply_to_each')?['contentType'], 'application/pdf'), endsWith(toLower(items('Apply_to_each')?['name']), '.pdf'))
    ```
-7. In the **Yes** branch, add the **factoriq.ai - Upload a document** action:
-   - **file**: Select **Attachment Content** from dynamic content
+7. In the **Yes** branch, add the **factoriq.ai - Send an email to factoriq.ai** action:
+   - **message_id**: expression `concat(triggerOutputs()?['body/id'], '/', items('Apply_to_each')?['id'])`. Each PDF becomes its own document, and a retry of the same PDF is ignored
+   - **sender_address**: **From**; **subject**: **Subject**; **received_at**: **Received Time**
+   - **body_content**: **Body**; **body_content_type**: `html`
    - **document_type**: `order` (or `invoice`, `data_sheet`, `delivery_note`, `quote_request`)
-8. Add **factoriq.ai - Run extraction for an uploaded document**:
-   - **document_id**: Select **id** from the Upload response
-   - Open **...** > **Settings** and set **Retry Policy** to **None** (see [Known Limitations](#known-limitations))
+   - **attachments**: one item with **name** = **Attachments Name**, **content_type** = `application/pdf` (also for PDFs the mail client sent as `application/octet-stream`), **content_base64** = **Attachments Content**
+8. Leave the action's **Retry Policy** at the default. Retrying is safe (see [Known Limitations](#known-limitations))
 9. **Save** the flow
 
 ### Step 3: Test
@@ -120,19 +121,17 @@ To create a portable Solution package for distribution:
 
 ## Known Limitations
 
-1. **Quota usage**: Each document consumes **2 quota units** (1 for upload + 1 for extraction) of your monthly quota.
+1. **Quota usage**: Each PDF consumes **1 quota unit** of your monthly quota, charged when its extraction starts. If the extraction fails, the unit is refunded.
 
-2. **Extraction is synchronous**: The extraction action returns only when the extraction has finished. If it fails, factoriq.ai deletes the document so the same file can be uploaded again. An automatic retry would either fail with 404 or run (and bill) the extraction a second time, so keep the retry policy on that action set to **None**.
+2. **Extraction is synchronous**: The action returns only when the extraction has finished. A retry is safe: factoriq.ai recognises the same `message_id`, returns the existing document with `status: duplicate`, and does not store or charge it again. A failed extraction stays in factoriq.ai and can be reprocessed from the UI.
 
 3. **Polling interval**: Power Automate checks for new emails periodically (~1-5 minutes depending on your license tier).
 
-4. **No email tracing**: The factoriq.ai UI does not show which email a document came from. Check the flow run history for traceability.
+4. **PDF attachments only**: The flow sends PDF attachments. The API also accepts PNG, JPEG, TXT and HTML, but sending images from emails would also send logos and signatures.
 
-5. **PDF attachments only**: The flow sends PDF attachments. The API also accepts PNG, JPEG, TXT and HTML, but sending images from emails would also send logos and signatures.
+5. **API key storage**: The API key is stored in the Custom Connector connection, encrypted at rest. It is not visible as a plaintext environment variable.
 
-6. **API key storage**: The API key is stored in the Custom Connector connection, encrypted at rest. It is not visible as a plaintext environment variable.
-
-7. **License requirements**: Running cloud flows requires a Power Automate license. Check your organization's Microsoft 365 plan for included entitlements.
+6. **License requirements**: Running cloud flows requires a Power Automate license. Check your organization's Microsoft 365 plan for included entitlements.
 
 ## Troubleshooting
 
@@ -140,10 +139,10 @@ To create a portable Solution package for distribution:
 
 - **Check the error details** in the run history. Click the failed run to see which action failed.
 - **401 Unauthorized**: Your API key is invalid or expired. Update the Custom Connector connection with a new key.
-- **400 Bad Request** on upload: The file may be corrupted, too large, or of an unsupported type.
-- **400 / 500** on extraction: The document could not be processed and has been deleted. Resend the email to retry.
-- **409 Conflict**: Duplicate document (already uploaded). This is informational.
-- **429 Too Many Requests**: Rate limit or monthly quota reached.
+- **400 Bad Request**: The attachment may be corrupted, too large, or of an unsupported type.
+- **`status: duplicate`** in the response: this PDF from this email was already received. This is informational.
+- **429 Too Many Requests**: Monthly quota reached. Nothing was stored.
+- **Extraction failed**: The document stays in factoriq.ai with the status `extraction_failed`. Reprocess it from the UI; resending the email does not help, because the same `message_id` is ignored.
 
 ### Flow doesn't trigger
 
